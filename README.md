@@ -11,7 +11,7 @@ Cities are marked as discoevered based on the map seed, so cities discovered by 
 Installing
 --------
 
-Download the latest release from [here](https://github.com/synap5e/cubeworld-trader-fast-travel/releases), unzip and place the two files in the CubeWorld folder (`C:/Program Files (x86)/CubeWorld` or `C:/Program Files/CubeWorld`).
+Download the latest release from [here](https://github.com/synap5e/cubeworld-trader-fast-travel/releases), unzip and place the files in the CubeWorld folder (`C:/Program Files (x86)/CubeWorld` or `C:/Program Files/CubeWorld`).
 Launch by running `TraderFastTravelModLauncher.exe`
 
 Sharing city locations
