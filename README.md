@@ -1,0 +1,2 @@
+cubeworld-trader-fast-travel
+============================
