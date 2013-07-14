@@ -215,6 +215,12 @@ void serialize(){
 
 	byte data[50000]; // should support ~1000 cities
 	byte* data_c = data;
+	wcscpy((wchar_t*) data_c, last_city);
+	data_c += wcslen(last_city) * 2;
+	*data_c = 0;
+	data_c++;
+	*data_c = 0;
+	data_c++;
 	for (map<wstring, location>::iterator it = cities.begin(); it != cities.end(); ++it) {
 		wstring city = it->first;
 		location loc = it->second;
@@ -287,6 +293,12 @@ void deserialize(){
 		);
 	printf("%d\n", dwBytesRead);
 	printf("%d\n", b);
+	if (b && (data_c - data) < dwBytesRead){
+		wchar_t* data_s = (wchar_t*) data_c;
+		wcscpy_s(last_city, data_s);
+		data_c += wcslen(last_city) * 2;
+		data_c += 2;
+	}
 	while (b && (data_c - data) < dwBytesRead){
 		location loc;
 
