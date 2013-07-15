@@ -191,6 +191,26 @@ wchar_t prompt[64] = { 0 };
 	return hashcode;
 }*/
 
+void sanity_check(const location* loc, const wchar_t* stage, const wchar_t* city){
+	DWORD x = loc->x & (DWORD) - 1;
+	DWORD x_chunk = loc->x >> 32;
+	DWORD y = loc->y & (DWORD) - 1;
+	DWORD y_chunk = loc->y >> 32;
+	DWORD z = loc->z & (DWORD) - 1;
+	DWORD z_chunk = loc->z >> 32;
+	if (x_chunk > 255 || x_chunk < 1 || y_chunk > 255 || y_chunk < 1 || z_chunk > 255 || z_chunk < 1){
+		wchar_t string[512];
+		wsprintf(string, L"Chunk location sanity check failed.\nMod is refusing to start for this world, world-%d.sav needs to contain valid data or be deleted.\n\nPlease contact the mod developer.\n\nInformation:\nStage: %s\nCity: %s\nSeed: %d", current_seed, stage, city, current_seed);
+		MessageBox(
+			NULL,
+			string,
+			L"Assertion failed",
+			MB_ICONEXCLAMATION | MB_OK
+			);
+	}
+	exit(-1);
+}
+
 location* get_location(){
 	QWORD player_x = *((QWORD*) p_player_base + 0x2);
 	QWORD player_z = *((QWORD*) p_player_base + 0x3);
@@ -320,6 +340,8 @@ void deserialize(){
 		loc.trade_district = *data_c;
 		data_c++;
 
+		sanity_check(&loc, L"deserialize", city);
+
 		cities.insert(City_Pair(city, loc));
 		wprintf(L"Loaded city %s\n", city);
 
@@ -338,7 +360,7 @@ bool on_ground(){
 
 bool update_next_ground = false;
 void on_draw_location(){
-	if (update_next_ground && in_city && on_ground()){
+	if (p_player_base && update_next_ground && in_city && on_ground()){
 		update_next_ground = false;
 		wprintf(L"Updating '%s' to a location on the ground\n", last_city);
 		cities[last_city] = *get_location();
@@ -360,7 +382,7 @@ void on_draw_location(){
 		if (!on_ground()){
 			update_next_ground = true;
 		} 
-		else if ((in_outer_city || in_city_district) && wcslen(last_city) > 0){
+		else if (p_player_base &&(in_outer_city || in_city_district) && wcslen(last_city) > 0){
 				wprintf(L"In city %s\n", last_city);
 
 				srand(time(NULL));
@@ -461,12 +483,14 @@ void on_push_nothing_special(){
 		
 	map<wstring, location>::iterator it = cities.find(travel_target);
 	if (it != cities.end() && last_inspected_trader && wcslen(last_city) > 0){
+
 		printf("Teleporting...\n");
 		wcsncpy(traveled_dialogue, L"You have arrived in", 32);
 		wcsncat(traveled_dialogue, travel_target.c_str(), 32);
 		disable_trader_dialogue = true;
 
 		location loc = it->second;
+		sanity_check(&loc, L"Teleport", travel_target.c_str());
 		*((QWORD*) p_player_base + 0x2) = loc.x;
 		*((QWORD*) p_player_base + 0x3) = loc.z;
 		*((QWORD*) p_player_base + 0x4) = loc.y;
@@ -543,7 +567,7 @@ void on_examine_prompt(){
 			/*
 			Teleporting to stalls is the optimal way to travel
 			*/
-			if (wcslen(last_city) > 0){
+			if (p_player_base && wcslen(last_city) > 0){
 				location* loc = get_location();
 				if (!loc->merchant){
 					loc->city_district = true;
@@ -563,6 +587,9 @@ void on_examine_prompt(){
 			}
 
 			city_vector.erase(remove(city_vector.begin(), city_vector.end(), wstring(last_city)), city_vector.end());
+			for (auto i : city_vector) {
+				wprintf(L"\t%s\n", i);
+			}
 
 			if (city_vector.size() > 0 && wcslen(last_city) > 0)
 			{
@@ -772,7 +799,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 	if (ul_reason_for_call == DLL_PROCESS_ATTACH)
 	{
 
-		//CreateDebugConsole();
+		CreateDebugConsole();
 
 		DWORD cube_base = (DWORD) GetModuleHandle(L"Cube.exe");
 		
