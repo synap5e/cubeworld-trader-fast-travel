@@ -194,11 +194,13 @@ wchar_t prompt[64] = { 0 };
 void sanity_check(const location* loc, const wchar_t* stage, const wchar_t* city){
 	DWORD x = loc->x & (DWORD) - 1;
 	DWORD x_chunk = loc->x >> 32;
-	DWORD y = loc->y & (DWORD) - 1;
-	DWORD y_chunk = loc->y >> 32;
 	DWORD z = loc->z & (DWORD) - 1;
 	DWORD z_chunk = loc->z >> 32;
-	if (x_chunk > 255 || x_chunk < 1 || y_chunk > 255 || y_chunk < 1 || z_chunk > 255 || z_chunk < 1){
+	DWORD y = loc->y & (DWORD) - 1;
+	DWORD y_chunk = loc->y >> 32;
+	printf("Chunks: %d, %d, %d\n", x_chunk, z_chunk, y_chunk);
+
+	if (x_chunk > 255 || x_chunk < 1 || z_chunk > 255 || z_chunk < 1 || y_chunk > 2){
 		wchar_t string[512];
 		wsprintf(string, L"Chunk location sanity check failed.\nMod is refusing to start for this world, world-%d.sav needs to contain valid data or be deleted.\n\nPlease contact the mod developer.\n\nInformation:\nStage: %s\nCity: %s\nSeed: %d", current_seed, stage, city, current_seed);
 		MessageBox(
@@ -207,8 +209,9 @@ void sanity_check(const location* loc, const wchar_t* stage, const wchar_t* city
 			L"Assertion failed",
 			MB_ICONEXCLAMATION | MB_OK
 			);
+		exit(-1);
 	}
-	exit(-1);
+	
 }
 
 location* get_location(){
@@ -404,6 +407,7 @@ void on_draw_location(){
 					*/
 					traders.clear();
 					serialize();
+					sanity_check(loc, L"Save new city", travel_target.c_str());
 				}
 				else if (loc->trade_district){
 					if (!it->second.trade_district){
