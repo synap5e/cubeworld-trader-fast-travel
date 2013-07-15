@@ -98,10 +98,10 @@ void MakeJMP(BYTE *pAddress, DWORD dwJumpTo, DWORD dwLen)
 }
 
 DWORD draw_player_internal = FindPattern(reinterpret_cast<DWORD>(GetModuleHandle(NULL)), GetModuleSize("Cube.exe"),
-	reinterpret_cast<PBYTE>("\xF3\x0F\x10\x82\x6C\x01\x00\x00"),
-	"xxxxxxxx");
+	reinterpret_cast<PBYTE>("\xFF\xB0\x90\x01\x00\x00\x8D\x84\x24\x60\x09\x00\x00"),
+	"xxxxxxxxxxxxx");
 
-DWORD draw_player_JMP_back = (draw_player_internal + 6);
+DWORD draw_player_JMP_back = draw_player_internal + 5;
 
 
 DWORD examine_prompt_internal = FindPattern(reinterpret_cast<DWORD>(GetModuleHandle(NULL)), GetModuleSize("Cube.exe"),
@@ -176,7 +176,7 @@ wchar_t last_city[32] = {0};
 bool in_outer_city = false;
 bool in_city_district = false;
 bool in_trade_district = false;
-bool in_city = false;
+bool know_city_name = false;
 
 bool last_inspected_trader = false;
 bool disable_trader_dialogue = false;
@@ -322,6 +322,14 @@ void deserialize(){
 		data_c += wcslen(last_city) * 2;
 		data_c += 2;
 	}
+	if ((data_c - data) > 4){
+		wprintf(L"In city: %s\n", last_city);
+		know_city_name = true;
+	}
+	else {
+		know_city_name = false;
+		printf("Not in city\n");
+	}
 	while (b && (data_c - data) < dwBytesRead){
 		location loc;
 
@@ -363,35 +371,36 @@ bool on_ground(){
 
 bool update_next_ground = false;
 void on_draw_location(){
-	if (p_player_base && update_next_ground && in_city && on_ground()){
+	if (update_next_ground && p_player_base && know_city_name && on_ground()){
 		update_next_ground = false;
 		wprintf(L"Updating '%s' to a location on the ground\n", last_city);
-		cities[last_city] = *get_location();
+		location loc = *get_location();
+		cities[last_city] = loc;
 		serialize();
+		sanity_check(&loc, L"Update city to ground level", travel_target.c_str());
 	}
 	if (wcscmp(last_str, location_string) && *((BYTE*) location_string) != 0x00 && p_player_base){
-
+		wprintf(L"%s\n", location_string);
 		wcsncpy(last_str, location_string, 32);
 
 		in_outer_city = wcsstr(location_string, L"City");
 		in_city_district = wcsstr(location_string, L"District");
-		in_city = in_outer_city || in_city_district;
+		know_city_name = in_outer_city || (know_city_name && in_city_district);
+
 		in_trade_district = wcsstr(location_string, L"Trade District");
 
 		if (in_outer_city){
 			wchar_t* city = location_string;
 			wcsncpy(last_city, city, 32);
 		}
-		if (!on_ground()){
-			update_next_ground = true;
-		} 
-		else if (p_player_base &&(in_outer_city || in_city_district) && wcslen(last_city) > 0){
+		else if (p_player_base &&(in_outer_city || in_city_district) && know_city_name){
 				wprintf(L"In city %s\n", last_city);
 
 				srand(time(NULL));
 				city_travel_index = rand()+1;
 
 				location* loc = get_location();
+				wprintf(L"%s\n\t%d, %d", last_city, in_city_district, in_trade_district);
 
 				map<wstring, location>::iterator it = cities.find(last_city);
 				if (it == cities.end()){
@@ -408,6 +417,9 @@ void on_draw_location(){
 					traders.clear();
 					serialize();
 					sanity_check(loc, L"Save new city", travel_target.c_str());
+					if (!on_ground()){
+						update_next_ground = true;
+					}
 				}
 				else if (loc->trade_district){
 					if (!it->second.trade_district){
@@ -418,6 +430,10 @@ void on_draw_location(){
 						wprintf(L"Updating city '%s' to point to a trade district\n", last_city);
 						cities[last_city] = *loc;
 						serialize();
+						sanity_check(loc, L"Update city to trade district", travel_target.c_str());
+						if (!on_ground()){
+							update_next_ground = true;
+						}
 					}
 				}
 				else if (loc->city_district){
@@ -429,6 +445,10 @@ void on_draw_location(){
 						wprintf(L"Updating city '%s' to point to a city district\n", last_city);
 						cities[last_city] = *loc;
 						serialize();
+						sanity_check(loc, L"Update city to any district", travel_target.c_str());
+						if (!on_ground()){
+							update_next_ground = true;
+						}
 					}
 				}
 				else {
@@ -486,7 +506,7 @@ wchar_t* dialogue = inspect_dialogue;
 void on_push_nothing_special(){
 		
 	map<wstring, location>::iterator it = cities.find(travel_target);
-	if (it != cities.end() && last_inspected_trader && wcslen(last_city) > 0){
+	if (p_player_base && it != cities.end() && last_inspected_trader && know_city_name){
 
 		printf("Teleporting...\n");
 		wcsncpy(traveled_dialogue, L"You have arrived in", 32);
@@ -571,7 +591,7 @@ void on_examine_prompt(){
 			/*
 			Teleporting to stalls is the optimal way to travel
 			*/
-			if (p_player_base && wcslen(last_city) > 0){
+			if (p_player_base && know_city_name){
 				location* loc = get_location();
 				if (!loc->merchant){
 					loc->city_district = true;
@@ -710,7 +730,7 @@ void on_draw_player(){
 			mov esi, [oldesi]
 			mov edi, [oldedi]
 
-			MOVSS XMM0, DWORD PTR DS : [EDX + 0x16C]
+			PUSH    DWORD PTR DS : [EAX + 190]
 
 			jmp[draw_player_JMP_back]
 	}
@@ -729,7 +749,7 @@ __declspec(naked) void on_draw_player_asm(){
 			mov [oldesi], esi
 			mov [oldedi], edi
 
-			mov[p_player_base], edx
+			mov[p_player_base], eax
 	
 			jmp on_draw_player
 	}
@@ -803,14 +823,14 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 	if (ul_reason_for_call == DLL_PROCESS_ATTACH)
 	{
 
-		CreateDebugConsole();
+		//CreateDebugConsole();
 
 		DWORD cube_base = (DWORD) GetModuleHandle(L"Cube.exe");
 		
 		if (draw_player_internal)
 		{
 			printf("Found drawing opcodes: %x\n", draw_player_internal);
-			MakeJMP((BYTE*) (draw_player_internal), (DWORD) on_draw_player_asm, 0x8);
+			MakeJMP((BYTE*) (draw_player_internal), (DWORD) on_draw_player_asm, 0x6);
 		}
 		else {
 			printf("drawing code not found\n");
