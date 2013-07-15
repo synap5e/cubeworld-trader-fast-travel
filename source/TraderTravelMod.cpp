@@ -472,6 +472,7 @@ void on_push_nothing_special(){
 		*((QWORD*) p_player_base + 0x4) = loc.y;
 
 		wcsncpy(last_city, travel_target.c_str(), 32);
+		serialize();
 	}
 	else if (last_inspected_trader){
 		dialogue = no_cities_dialogue;
