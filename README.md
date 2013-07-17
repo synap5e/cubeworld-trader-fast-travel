@@ -11,8 +11,13 @@ Cities are marked as discoevered based on the map seed, so cities discovered by 
 Installing
 --------
 
+This mod requires the x86 version of [Visual C++ Redistributable for Visual Studio 2013 Preview](www.microsoft.com/download/details.aspx?id=39315)
+
 Download the latest release from [here](https://github.com/synap5e/cubeworld-trader-fast-travel/releases), unzip and place the files in the CubeWorld folder (`C:/Program Files (x86)/CubeWorld` or `C:/Program Files/CubeWorld`).
 Launch by running `TraderFastTravelModLauncher.exe`
+
+If you do not want the town-portal spell, do not copy (or delete) the KeyEvent.dll
+
 
 Sharing city locations
 --------
