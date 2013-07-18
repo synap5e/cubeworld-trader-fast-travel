@@ -173,6 +173,9 @@ map<QWORD, wstring> traders;
 typedef pair <QWORD, wstring> Trader_Pair;
 wstring travel_target;
 
+HHOOK hhk;
+
+bool do_town_portal = false;
 
 bool last_inspected_trader = false;
 bool disable_trader_dialogue = false;
@@ -186,18 +189,12 @@ wchar_t* p_location_internal = NULL;
 wchar_t* current_city = NULL;
 wchar_t* current_district = NULL;
 
+wchar_t* last_city = NULL;
+
 DWORD current_seed = -1;
 
 
 wchar_t prompt[64] = { 0 };
-
-extern "C" __declspec(dllexport) void keypress(WPARAM wParam) {
-	if (wParam == 0x31){
-		printf("Town portal spell hit\n");
-		//TODO: town portal
-	}
-	//printf("%x\n", wParam);
-}
 
 void debug_location(location loc){
 	DWORD x = loc.x & (DWORD) - 1;
@@ -236,7 +233,7 @@ void sanity_check(const location* loc, const wchar_t* stage, const wchar_t* city
 
 	if (x_chunk > 255 || x_chunk < 1 || z_chunk > 255 || z_chunk < 1 || y_chunk > 2){
 		wchar_t string[512];
-		wsprintf(string, L"Chunk location sanity check failed.\nMod is refusing to start for this world, world-%d.sav needs to contain valid data or be deleted.\n\nPlease contact the mod developer.\n\nInformation:\nStage: %s\nCity: %s\nSeed: %d", current_seed, stage, city, current_seed);
+		wsprintf(string, L"Chunk location sanity check failed.\nMod is refusing to start for this world, world-%d.sav needs to contain valid data or be deleted.\n\nPlease contact the mod developer.\n\nInformation:\nStage: %s\nCity: %s\nSeed: %d\n", current_seed, stage, city, current_seed);
 		wprintf(string);
 		fflush(stdout);
 		MessageBox(
@@ -274,6 +271,11 @@ void serialize(){
 
 	byte data[50000]; // should support ~1000 cities
 	byte* data_c = data;
+
+	if (last_city){
+		wcscpy((wchar_t*) data_c, last_city);
+		data_c += wcslen(last_city) * 2;
+	}
 	*data_c = 0;
 	data_c++;
 	*data_c = 0;
@@ -352,10 +354,13 @@ void deserialize(){
 	printf("%d\n", dwBytesRead);
 	printf("%d\n", b);
 	if (b && (data_c - data) < dwBytesRead){
-		// Legacy support for old saves
-		wchar_t* last_city = new wchar_t[32];
-		wcsncpy(last_city, (wchar_t*) data_c, 32);
-		data_c += wcslen(last_city) * 2;
+		if (*data_c){
+			// If not \0, then a valid string was written
+			last_city = new wchar_t[32];
+			wcsncpy(last_city, (wchar_t*) data_c, 32);
+			data_c += wcslen(last_city) * 2;
+			wprintf(L"Loaded last_city = %s\n", last_city);
+		}
 		data_c += 2;
 	}
 	while (b && (data_c - data) < dwBytesRead){
@@ -398,6 +403,20 @@ bool on_ground(){
 	return false;
 }
 
+extern "C" __declspec(dllexport) void keypress(WPARAM wParam, LPARAM lParam) {
+	
+	if (lParam & 1 << 31){
+		// Key released
+	}
+	else if ((lParam & 1 << 30) == 0){
+		// Key pressed
+		if (wParam == 'J'){
+			printf("Scheduling a teleport\n");
+			do_town_portal = true;
+		}
+	}
+}
+
 unsigned int draw_location_cycle = 0;
 
 unsigned int last_no_city_cycle = 0;
@@ -423,13 +442,18 @@ void on_draw_location(){
 			if (!current_city || wcscmp(current_city, p_location_internal)){
 				wprintf(L"current_city changed from %s to %s\n", current_city, p_location_internal);
 				fflush(stdout);
-				if (!current_city)
-				{
+				if (!current_city){
 					current_city = new wchar_t[32];
 				}
 				wcsncpy(current_city, p_location_internal, 32);
+
+				if (!last_city){
+					last_city = new wchar_t[32];
+				}
+				wcsncpy(last_city, current_city, 32);
+				serialize();
+
 				location_changed = true;
-				
 			}
 		}
 		else if (p_location_internal && wcsstr(p_location_internal, L"District"))
@@ -456,6 +480,7 @@ void on_draw_location(){
 			wprintf(L"current_district changed from %s to null\n", current_district);
 			delete current_district;
 			current_district = NULL;
+			in_city_district = in_trade_district = false;
 			location_changed = true;
 		}
 		else if (current_city && last_no_city_cycle > 16)
@@ -464,15 +489,17 @@ void on_draw_location(){
 			wprintf(L"current_city changed from %s to null\n", current_city);
 			delete current_city;
 			current_city = NULL;
+			in_city_district = in_trade_district = false;
 			location_changed = true;
-		} else 
+		}
+		else
 		{
 			last_no_city_cycle++;
 			last_no_district_cycle++;
 		}
 		if (location_changed){
-			wprintf(L"Location Changed!\n\tcurrent_city = '%s'\n\tcurrent_district = '%s'\n\tin_city_district = %s\n\tin_trade_district = %s\n\n", 
-				current_city, current_district, (in_city_district) ? L"true" : L"false", (in_trade_district) ? L"true" : L"false");
+			wprintf(L"Location Changed!\n\tcurrent_city = '%s'\n\tcurrent_district = '%s'\n\tin_city_district = %s\n\tin_trade_district = %s\n\tlast_city = '%s'\n\n",
+				current_city, current_district, (in_city_district) ? L"true" : L"false", (in_trade_district) ? L"true" : L"false", last_city);
 			fflush(stdout);
 			srand(time(NULL));
 			city_travel_index = rand() + 1;
@@ -545,7 +572,7 @@ void on_draw_location(){
 	__asm
 	{
 
-			mov eax, [oldeax]
+		mov eax, [oldeax]
 			mov ecx, [oldecx]
 			mov edx, [oldedx]
 			mov ebx, [oldebx]
@@ -566,7 +593,7 @@ void on_draw_location(){
 __declspec(naked) void draw_location_asm(){
 	__asm
 	{
-			mov[oldeax], eax
+		mov[oldeax], eax
 			mov[oldecx], ecx
 			mov[oldedx], edx
 			mov[oldebx], ebx
@@ -589,19 +616,17 @@ wchar_t* dialogue = inspect_dialogue;
 void on_push_nothing_special(){
 
 	map<wstring, location>::iterator it = cities.find(travel_target);
-	printf("Checking if teleporting is allowed\n\tfound player: %s\n\tfound target city: %s\n\tlast examined trader: %s\n\tin a known city: %s\n\n", 
+	printf("Checking if teleporting is allowed\n\tfound player: %s\n\tfound target city: %s\n\tlast examined trader: %s\n\tin a known city: %s\n\n",
 		(p_player_base) ? "true" : "false", (it != cities.end()) ? "true" : "false", (last_inspected_trader) ? "true" : "false", (current_city) ? "true" : "false");
 	if (p_player_base && it != cities.end() && last_inspected_trader && current_city){
 
-		wprintf(L"Teleporting to '%s'\n", current_city);
+		wprintf(L"Teleporting from '%s' to '%s'\n", current_city, travel_target);
 
 		printf("Current location: ");
 		location* dloc = get_location();
 		debug_location(*dloc);
 		delete dloc;
 
-		wcsncpy(traveled_dialogue, L"You have arrived in", 32);
-		wcsncat(traveled_dialogue, travel_target.c_str(), 32);
 		disable_trader_dialogue = true;
 		fflush(stdout);
 		location loc = it->second;
@@ -626,8 +651,7 @@ void on_push_nothing_special(){
 		debug_location(*dloc);
 		delete dloc;
 
-		fflush(stdout);
-		serialize();
+
 	}
 	else if (last_inspected_trader){
 		dialogue = no_cities_dialogue;
@@ -687,7 +711,7 @@ void on_examine_prompt(){
 		last_item_hash = item_hash;
 
 		byte id = *((byte*) p_item_base);
-	//	printf("%x\n", id);
+		//	printf("%x\n", id);
 
 		if (id == 0x15 || id == 0x16 || id == 0x17)
 		{
@@ -775,8 +799,7 @@ void on_examine_prompt(){
 
 	__asm
 	{
-
-		mov eax, [oldeax]
+			mov eax, [oldeax]
 			mov ecx, [oldecx]
 			mov edx, [oldedx]
 			mov ebx, [oldebx]
@@ -811,6 +834,13 @@ __declspec(naked) void examine_prompt_asm(){
 	}
 }
 
+LRESULT CALLBACK wireKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
+	if (HC_ACTION == nCode){
+		keypress(wParam, lParam);
+	}
+	return CallNextHookEx(hhk, nCode, wParam, lParam);
+}
+
 PVOID* old_p_player_base;
 bool in = false;
 void on_draw_player(){
@@ -822,20 +852,69 @@ void on_draw_player(){
 		fflush(stdout);
 	}
 
+	if (do_town_portal){
+		printf("Town portal spell hit\n");
+		if (last_city){
+			wprintf(L"Teleporting to city '%s'\n", last_city);
+
+			map<wstring, location>::iterator it = cities.find(wstring(last_city));
+			if (it == cities.end()){
+				printf("city not found in map\n");
+				return;
+			}
+
+			printf("Current location: ");
+			location* dloc = get_location();
+			debug_location(*dloc);
+			delete dloc;
+
+			fflush(stdout);
+			location loc = it->second;
+			sanity_check(&loc, L"Teleport", last_city);
+
+			if (!current_city){
+				current_city = new wchar_t[32];
+			}
+			wcsncpy(current_city, last_city, 32);
+
+			printf("Teleporting to: ");
+			debug_location(loc);
+			fflush(stdout);
+
+			*((QWORD*) p_player_base + 0x2) = loc.x;
+			*((QWORD*) p_player_base + 0x3) = loc.z;
+			*((QWORD*) p_player_base + 0x4) = loc.y;
+
+			printf("Teleport done\n");
+
+			printf("Current location: ");
+			dloc = get_location();
+			debug_location(*dloc);
+			delete dloc;
+
+
+			fflush(stdout);
+			serialize();
+		}
+		else {
+			printf("No last city\n");
+		}
+		fflush(stdout);
+		do_town_portal = false;
+	}
+
 	if (!in)
 	{
 		in = true;
-		HINSTANCE hinst = LoadLibrary(L"KeyEvent.dll");
-		if (hinst == NULL)
-		{
-			printf("Failed to set keyboard hook\n");
+		printf("Hooking keyboard... ");
+		hhk = SetWindowsHookEx(WH_KEYBOARD, wireKeyboardProc, NULL, GetCurrentThreadId());
+		if (hhk){
+			printf("done\n");
 		}
-		else
-		{
-			typedef void (*Install)();
-			Install install = (Install) GetProcAddress(hinst, "install");
-			install();
+		else {
+			printf("fail\n");
 		}
+		fflush(stdout);
 	}
 
 	__asm
@@ -850,7 +929,7 @@ void on_draw_player(){
 			mov esi, [oldesi]
 			mov edi, [oldedi]
 
-			PUSH    DWORD PTR DS : [EAX + 190]
+			PUSH    DWORD PTR DS : [EAX + 0x190]
 
 			jmp[draw_player_JMP_back]
 	}
@@ -879,7 +958,7 @@ __declspec(naked) void dialogue_bubble_asm()
 {
 	__asm
 	{
-		LEA     EAX, DWORD PTR SS : [EBP - 0x1C]
+			LEA     EAX, DWORD PTR SS : [EBP - 0x1C]
 			LEA     ECX, DWORD PTR DS : [EDI + 0x160]
 
 			cmp byte ptr ss : [disable_trader_dialogue], 0x00
@@ -890,13 +969,36 @@ __declspec(naked) void dialogue_bubble_asm()
 			jmp[dialogue_bubble_JMP_back_dialogue] // taken if disable_trader_dialogue == false
 
 		NO_DIALOGUE :
-					jmp[dialogue_bubble_JMP_back_no_dialogue]
+			jmp[dialogue_bubble_JMP_back_no_dialogue]
 	}
 }
 
 void on_load_world(){
 
-	printf("Loading world with seed: %d\n", current_seed);
+	printf("Loading world with seed: %d\nClearing world specific data\n", current_seed);
+
+	if (last_city){
+		delete last_city;
+	}
+	last_city = NULL;
+	if (current_city){
+		delete current_city;
+	}
+	current_city = NULL;
+	if (current_district){
+		delete current_district;
+	}
+	current_district = NULL;
+
+	p_location_internal = NULL;
+	in_city_district = false;
+	in_trade_district = false;
+	do_town_portal = false;
+	update_next_ground = false;
+
+	cities.clear();
+	traders.clear();
+
 	deserialize();
 
 	__asm
@@ -942,7 +1044,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 	{
 
 		hinst = hModule;
-//		CreateDebugConsole();
+		//CreateDebugConsole();
 		freopen("fast travel.log", "a", stdout);
 
 		DWORD cube_base = (DWORD) GetModuleHandle(L"Cube.exe");
@@ -985,7 +1087,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 			}
 
 			//(BYTE *pAddress, DWORD dwJumpTo, DWORD dwLen)
-			BYTE *pAddress = (BYTE*)draw_location;
+			BYTE *pAddress = (BYTE*) draw_location;
 			DWORD dwJumpTo = (DWORD) draw_location_asm;
 			DWORD dwLen = 7;
 			DWORD dwOldProtect, dwBkup, dwRelAddr;
@@ -1007,7 +1109,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 			MakeJMP((BYTE*) (push_nothing_special), (DWORD) push_nothing_special_asm, 0x7);
 
 			//	Patch the code that displays the text window, so we can disable this on teleport
-			
+
 			dialogue_bubble_JMP_back_dialogue = push_nothing_special + 0x3f;
 			dialogue_bubble_JMP_back_no_dialogue = push_nothing_special + 0x46;
 			MakeJMP((BYTE*) (push_nothing_special + 0x37), (DWORD) dialogue_bubble_asm, 0xA);
@@ -1029,8 +1131,14 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 		fflush(stdout);
 
 	}
-	else if (ul_reason_for_call == DLL_PROCESS_DETACH )
+	else if (ul_reason_for_call == DLL_PROCESS_DETACH)
 	{
+		//printf("Unhooking keyboard\n");
+		//typedef void (*Uninstall)();
+		//Uninstall uninstall = (Uninstall) GetProcAddress(hinst, "uninstall");
+		//uninstall();
+
+
 		printf("Exiting... closing stdout\n");
 		fclose(stdout);
 		exit(0);
