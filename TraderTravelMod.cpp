@@ -128,10 +128,10 @@ DWORD push_nothing_special = FindPattern(reinterpret_cast<DWORD>(GetModuleHandle
 	"xxxxxxxxxxxx");
 
 DWORD load_world = FindPattern(reinterpret_cast<DWORD>(GetModuleHandle(NULL)), GetModuleSize("Cube.exe"),
-	reinterpret_cast<PBYTE>("\x50\xFF\xB1\x50\x0A\x80\x00\x81\xC1\xE4\x02\x00\x00"),
-	"xxxxxxxxxxxxx");
+	reinterpret_cast<PBYTE>("\x8B\x85\x64\xFF\xFF\xFF\x8B\x8D\x58\xFF\xFF\xFF"),
+	"xxxxxxxxxxxx");
 
-DWORD load_world_JMP_back = load_world + 5;
+DWORD load_world_JMP_back = load_world + 0x68 + 5;
 
 DWORD push_nothing_special_JMP_back = push_nothing_special + 5 + 0x0A;
 
@@ -1113,6 +1113,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 		}
 
 		if (load_world){
+			load_world += 0x68;
 			printf("Found load word %x\n", load_world);
 			MakeJMP((BYTE*) (load_world), (DWORD) load_world_asm, 0x7);
 		}
@@ -1139,3 +1140,4 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
 	return TRUE;
 }
+
