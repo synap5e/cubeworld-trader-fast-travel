@@ -110,9 +110,7 @@ DWORD examine_prompt_internal = FindPattern(reinterpret_cast<DWORD>(GetModuleHan
 
 DWORD examine_prompt_JMP_back = examine_prompt_internal + 5;
 
-DWORD push_examine = FindPattern(reinterpret_cast<DWORD>(GetModuleHandle(NULL)), GetModuleSize("Cube.exe"),
-	reinterpret_cast<PBYTE>("\x8B\x8F\xAC\x08\x80\x00\x8D\x84\x24\x3C\x22\x00\x00\x50"),
-	"xxxxxxxxxxxxxx");
+DWORD push_examine = examine_prompt_internal + 0x3BD;
 
 
 DWORD draw_location = FindPattern(reinterpret_cast<DWORD>(GetModuleHandle(NULL)), GetModuleSize("Cube.exe"),
@@ -424,7 +422,8 @@ unsigned int last_no_district_cycle = 0;
 
 
 void on_draw_location(){
-	if (p_player_base && ++draw_location_cycle % 256 < 4){
+	if (p_player_base && ++draw_location_cycle % 1024 < 4){
+		//printf("%d    -   update\n", time(NULL));
 		if (update_next_ground && p_player_base && current_city && on_ground()){
 			update_next_ground = false;
 			wprintf(L"Updating '%s' to a location on the ground\n", current_city);
@@ -1062,16 +1061,10 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 		{
 			printf("Found examine prompt opcodes: %x\n", draw_player_internal);
 			MakeJMP((BYTE*) (examine_prompt_internal), (DWORD) examine_prompt_asm, 0x6);
+			printf("\t and found push examine opcodes: %x\n", push_examine);
 		}
 		else {
 			fail(L"examine_prompt_internal");
-		}
-		if (push_examine){
-			push_examine += 36;
-			printf("Found view push examine : %x\n", push_examine);
-		}
-		else {
-			fail(L"push_examine");
 		}
 		if (draw_location)
 		{
