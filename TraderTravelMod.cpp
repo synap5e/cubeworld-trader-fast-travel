@@ -190,6 +190,12 @@ wchar_t* last_city = NULL;
 DWORD current_seed = -1;
 
 
+int portal_base_cost = 0;
+int portal_level_cost = 0;
+int town_portal_base_cost = 0;
+int town_portal_level_cost = 0;
+
+
 wchar_t prompt[64] = { 0 };
 
 void debug_location(location loc){
@@ -607,7 +613,7 @@ __declspec(naked) void draw_location_asm(){
 
 wchar_t* inspect_dialogue = L"There is nothing special";
 wchar_t* no_cities_dialogue = L"I'll only take you to cities you have already been to";
-wchar_t traveled_dialogue[64];
+wchar_t* cant_afford = L"Come back when you have enough money";
 wchar_t* dialogue = inspect_dialogue;
 
 void on_push_nothing_special(){
@@ -617,38 +623,52 @@ void on_push_nothing_special(){
 		(p_player_base) ? "true" : "false", (it != cities.end()) ? "true" : "false", (last_inspected_trader) ? "true" : "false", (current_city) ? "true" : "false");
 	if (p_player_base && it != cities.end() && last_inspected_trader && current_city){
 
-		wprintf(L"Teleporting from '%s' to '%s'\n", current_city, travel_target);
+		DWORD level = (DWORD) *(p_player_base + (0x190 / 4));
+		DWORD* money = (DWORD*)(p_player_base + (0x1304 / 4));
+		int cost = portal_base_cost + portal_level_cost * level;
 
-		printf("Current location: ");
-		location* dloc = get_location();
-		debug_location(*dloc);
-		delete dloc;
+		if (*money >= cost){
+			*money = *money - cost;
 
-		disable_trader_dialogue = true;
-		fflush(stdout);
-		location loc = it->second;
-		sanity_check(&loc, L"Teleport", travel_target.c_str());
+			wprintf(L"Teleporting from '%s' to '%s'\n", current_city, travel_target);
 
-		wcsncpy(current_city, travel_target.c_str(), 32);
-		wcsncpy(last_city, travel_target.c_str(), 32);
+			printf("Current location: ");
+			location* dloc = get_location();
+			debug_location(*dloc);
+			delete dloc;
 
-		printf("Teleporting to: ");
-		debug_location(loc);
-		fflush(stdout);
+			disable_trader_dialogue = true;
+			fflush(stdout);
+			location loc = it->second;
+			sanity_check(&loc, L"Teleport", travel_target.c_str());
 
-		*((QWORD*) p_player_base + 0x2) = loc.x;
-		*((QWORD*) p_player_base + 0x3) = loc.z;
-		*((QWORD*) p_player_base + 0x4) = loc.y;
+			wcsncpy(current_city, travel_target.c_str(), 32);
+			if (!last_city){
+				last_city = new wchar_t[32];
+			}
+			wcsncpy(last_city, travel_target.c_str(), 32);
+
+			printf("Teleporting to: ");
+			debug_location(loc);
+			fflush(stdout);
+
+			*((QWORD*) p_player_base + 0x2) = loc.x;
+			*((QWORD*) p_player_base + 0x3) = loc.z;
+			*((QWORD*) p_player_base + 0x4) = loc.y;
 
 
 
-		printf("Teleport done\n");
+			printf("Teleport done\n");
 
-		printf("Current location: ");
-		dloc = get_location();
-		debug_location(*dloc);
-		delete dloc;
-
+			printf("Current location: ");
+			dloc = get_location();
+			debug_location(*dloc);
+			delete dloc;
+		}
+		else {
+			printf("Can't afford to teleport with only %d. Need %d\n", *money, cost);
+			dialogue = cant_afford;
+		}
 
 	}
 	else if (last_inspected_trader){
@@ -706,14 +726,19 @@ void on_examine_prompt(){
 	QWORD item_hash = item_x ^ item_z ^ item_y;
 	if (item_hash != last_item_hash)
 	{
+
 		last_item_hash = item_hash;
 
 		byte id = *((byte*) p_item_base);
 		//	printf("%x\n", id);
 
-		if (id == 0x15 || id == 0x16 || id == 0x17)
+		if ((id == 0x15 || id == 0x16 || id == 0x17) && current_city)
 		{
 			last_inspected_trader = true;
+
+			DWORD level = (DWORD) *(p_player_base + (0x190 / 4));
+			DWORD money = (DWORD) *(p_player_base + (0x1304 / 4));
+			int cost = portal_base_cost + portal_level_cost * level;
 
 			/*
 			Teleporting to stalls is the optimal way to travel
@@ -762,8 +787,8 @@ void on_examine_prompt(){
 					wprintf(L"Already have a trader %llu. Target = '%s'\n", item_hash, travel_target);
 				}
 
-				wcsncpy(prompt, L"[R] Travel to ", 64);
-				wcscat(prompt, travel_target.c_str());
+
+				wsprintf(prompt, L"[R] Travel to %s\n{ %dG %dS %dC }", travel_target.c_str(), cost / 10000, (cost % 10000)/100, cost % 100);
 				DWORD dwOldProtect, dwBkup;
 				VirtualProtect((BYTE*) (push_examine), 5, PAGE_EXECUTE_READWRITE, &dwOldProtect);
 				*((DWORD *) ((BYTE*) (push_examine) + 0x1)) = (intptr_t) (&prompt);
@@ -845,54 +870,65 @@ void on_draw_player(){
 
 	if (old_p_player_base != p_player_base){
 		printf("Found player: %x\n", p_player_base);
-		printf("Name:%s\n\n", (wchar_t*) ((p_player_base + 0x45a)));
+		printf("Name: %s\n", (wchar_t*) ((p_player_base + 0x45a)));
 		old_p_player_base = p_player_base;
 		fflush(stdout);
 	}
 
 	if (do_town_portal){
 		printf("Town portal spell hit\n");
+
+		DWORD level = (DWORD) *(p_player_base + (0x190 / 4));
+		DWORD* money = (DWORD*) (p_player_base + (0x1304 / 4));
+		int cost = town_portal_base_cost + town_portal_level_cost * level;
+
 		if (last_city){
-			wprintf(L"Teleporting to city '%s'\n", last_city);
+			if (*money >= cost){
+				*money = *money - cost;
+				wprintf(L"Teleporting to city '%s'\n", last_city);
 
-			map<wstring, location>::iterator it = cities.find(wstring(last_city));
-			if (it == cities.end()){
-				printf("city not found in map\n");
-				return;
+				map<wstring, location>::iterator it = cities.find(wstring(last_city));
+				if (it == cities.end()){
+					printf("city not found in map\n");
+					return;
+				}
+
+				printf("Current location: ");
+				location* dloc = get_location();
+				debug_location(*dloc);
+				delete dloc;
+
+				fflush(stdout);
+				location loc = it->second;
+				sanity_check(&loc, L"Teleport", last_city);
+
+				if (!current_city){
+					current_city = new wchar_t[32];
+				}
+				wcsncpy(current_city, last_city, 32);
+
+				printf("Teleporting to: ");
+				debug_location(loc);
+				fflush(stdout);
+
+				*((QWORD*) p_player_base + 0x2) = loc.x;
+				*((QWORD*) p_player_base + 0x3) = loc.z;
+				*((QWORD*) p_player_base + 0x4) = loc.y;
+
+				printf("Teleport done\n");
+
+				printf("Current location: ");
+				dloc = get_location();
+				debug_location(*dloc);
+				delete dloc;
+
+
+				fflush(stdout);
+				serialize();
 			}
-
-			printf("Current location: ");
-			location* dloc = get_location();
-			debug_location(*dloc);
-			delete dloc;
-
-			fflush(stdout);
-			location loc = it->second;
-			sanity_check(&loc, L"Teleport", last_city);
-
-			if (!current_city){
-				current_city = new wchar_t[32];
+			else {
+				printf("Can't afford to use town portal with only %d. Need %d\n", *money, cost);
 			}
-			wcsncpy(current_city, last_city, 32);
-
-			printf("Teleporting to: ");
-			debug_location(loc);
-			fflush(stdout);
-
-			*((QWORD*) p_player_base + 0x2) = loc.x;
-			*((QWORD*) p_player_base + 0x3) = loc.z;
-			*((QWORD*) p_player_base + 0x4) = loc.y;
-
-			printf("Teleport done\n");
-
-			printf("Current location: ");
-			dloc = get_location();
-			debug_location(*dloc);
-			delete dloc;
-
-
-			fflush(stdout);
-			serialize();
 		}
 		else {
 			printf("No last city\n");
@@ -1041,11 +1077,19 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 	if (ul_reason_for_call == DLL_PROCESS_ATTACH)
 	{
 
-		//GetPrivateProfileInt(L"costs", L"port", 143, ".\\dbsettings.ini");
-
 		hinst = hModule;
 		//CreateDebugConsole();
 		freopen("fast travel.log", "a", stdout);
+
+		portal_base_cost = GetPrivateProfileInt(L"portals", L"base_cost", 0, L".\\fast-travel.ini");
+		portal_level_cost = GetPrivateProfileInt(L"portals", L"cost_per_level", 0, L".\\fast-travel.ini");
+		town_portal_base_cost = GetPrivateProfileInt(L"town-portal", L"base_cost", 0, L".\\fast-travel.ini");
+		town_portal_level_cost = GetPrivateProfileInt(L"town-portal", L"cost_per_level", 0, L".\\fast-travel.ini");
+
+		printf("Loaded settings\n\tportal_base_cost: %d\n\tportal_level_cost: %d\n\ttown_portal_base_cost: %d\n\ttown_portal_level_cost: %d\n",
+			portal_base_cost, portal_level_cost, town_portal_base_cost, town_portal_level_cost);
+
+		printf("%d\n", GetLastError());
 
 		DWORD cube_base = (DWORD) GetModuleHandle(L"Cube.exe");
 
