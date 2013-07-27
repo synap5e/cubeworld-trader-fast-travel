@@ -1,6 +1,5 @@
 #include <iostream>
 #include <Windows.h>
-#include <psapi.h>
 #include <TlHelp32.h>
 #include <fcntl.h>
 #include <io.h>
@@ -9,7 +8,6 @@
 #include <vector>
 #include <algorithm>
 #include <time.h>
-#include <sstream>
 
 using namespace std;
 
@@ -21,7 +19,7 @@ void CreateDebugConsole()
 	AllocConsole();
 	lStdHandle = GetStdHandle(STD_OUTPUT_HANDLE);
 	hConHandle = _open_osfhandle(PtrToUlong(lStdHandle), _O_TEXT);
-	SetConsoleTitle(L"Cube World Mod");
+	SetConsoleTitle(L"Fast Travel Mod");
 	SetConsoleTextAttribute(lStdHandle, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_INTENSITY);
 	system("cls");
 	fp = _fdopen(hConHandle, "w");
@@ -127,13 +125,13 @@ DWORD push_nothing_special = FindPattern(reinterpret_cast<DWORD>(GetModuleHandle
 	reinterpret_cast<PBYTE>("\x89\x45\xE4\x8D\x45\xD4\x50\x83\xEC\x18\x8B\xCC"),
 	"xxxxxxxxxxxx");
 
+DWORD push_nothing_special_JMP_back = push_nothing_special + 5 + 0x0A;
+
 DWORD load_world = FindPattern(reinterpret_cast<DWORD>(GetModuleHandle(NULL)), GetModuleSize("Cube.exe"),
 	reinterpret_cast<PBYTE>("\x8B\x85\x64\xFF\xFF\xFF\x8B\x8D\x58\xFF\xFF\xFF"),
 	"xxxxxxxxxxxx");
 
 DWORD load_world_JMP_back = load_world + 0x68 + 5;
-
-DWORD push_nothing_special_JMP_back = push_nothing_special + 5 + 0x0A;
 
 DWORD dialogue_bubble_JMP_back_dialogue;
 DWORD dialogue_bubble_JMP_back_no_dialogue;
@@ -227,11 +225,11 @@ void sanity_check(const location* loc, const wchar_t* stage, const wchar_t* city
 	DWORD z_chunk = loc->z >> 32;
 	DWORD y = loc->y & (DWORD) - 1;
 	DWORD y_chunk = loc->y >> 32;
-	//printf("Chunks: %d, %d, %d\n", x_chunk, z_chunk, y_chunk);
 
 	if (x_chunk > 255 || x_chunk < 1 || z_chunk > 255 || z_chunk < 1 || y_chunk > 2){
 		wchar_t string[512];
 		wsprintf(string, L"Chunk location sanity check failed.\nMod is refusing to start for this world, world-%d.sav needs to contain valid data or be deleted.\n\nPlease contact the mod developer.\n\nInformation:\nStage: %s\nCity: %s\nSeed: %d\n", current_seed, stage, city, current_seed);
+		printf("Location:\n\tX: %d, %d\n\tZ: %d, %d\n\tY: %d, %d\n", x_chunk, x, z_chunk, z, y_chunk, y);
 		wprintf(string);
 		fflush(stdout);
 		MessageBox(
@@ -571,7 +569,7 @@ void on_draw_location(){
 	__asm
 	{
 
-		mov eax, [oldeax]
+			mov eax, [oldeax]
 			mov ecx, [oldecx]
 			mov edx, [oldedx]
 			mov ebx, [oldebx]
@@ -632,6 +630,7 @@ void on_push_nothing_special(){
 		sanity_check(&loc, L"Teleport", travel_target.c_str());
 
 		wcsncpy(current_city, travel_target.c_str(), 32);
+		wcsncpy(last_city, travel_target.c_str(), 32);
 
 		printf("Teleporting to: ");
 		debug_location(loc);
@@ -662,7 +661,7 @@ void on_push_nothing_special(){
 	__asm
 	{
 
-		mov eax, [oldeax]
+			mov eax, [oldeax]
 			mov ecx, [oldecx]
 			mov edx, [oldedx]
 			mov ebx, [oldebx]
@@ -1042,6 +1041,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 	if (ul_reason_for_call == DLL_PROCESS_ATTACH)
 	{
 
+		//GetPrivateProfileInt(L"costs", L"port", 143, ".\\dbsettings.ini");
+
 		hinst = hModule;
 		//CreateDebugConsole();
 		freopen("fast travel.log", "a", stdout);
@@ -1059,7 +1060,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
 		if (examine_prompt_internal)
 		{
-			printf("Found examine prompt opcodes: %x\n", draw_player_internal);
+			printf("Found examine prompt opcodes: %x\n", examine_prompt_internal);
 			MakeJMP((BYTE*) (examine_prompt_internal), (DWORD) examine_prompt_asm, 0x6);
 			printf("\t and found push examine opcodes: %x\n", push_examine);
 		}
@@ -1140,4 +1141,3 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
 	return TRUE;
 }
-
