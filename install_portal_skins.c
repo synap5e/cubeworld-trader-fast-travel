@@ -1,10 +1,17 @@
+/*
+
+Can be comiled with 
+$ i586-mingw32msvc-gcc install_portal_skins.c zlib1.dll sqlite3.dll -o install_portal_skins.exe
+
+*/
+
 #include <stdlib.h>
-#include <sqlite3.h>
-  
+#include "sqlite3.h"
+
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
-#include <zlib.h>
+#include "zlib.h"
 
 #if defined(MSDOS) || defined(OS2) || defined(WIN32) || defined(__CYGWIN__)
 #  include <fcntl.h>
@@ -31,21 +38,13 @@ char* portal_data_z =   "\x78\xda\xed\x9c\x3d\x4e\xc3\x40\x10\x46\xe7\x06\xd0\x5
 "\x81\xe1\xf9\x75\x00\xff\x41\xf9\x21\x74\xf5\x1d\x68\x7a\xcf\x08\xd3\xb6\x0e\x00\x8e\x0e\x17\x70\x51\xfc\x02\x30\x0b\xc7\x12";
 
 int z_len = 445;
-int u_len = 25212;
+int u_len = 25212; 
 
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <fcntl.h>
-
-static int callback(void *NotUsed, int argc, char **argv, char **azColName){
-    int i;
-    for(i=0; i<argc; i++){
-      printf("%s = %s\n", azColName[i], argv[i] ? argv[i] : "NULL");
-    }
-    printf("\n");
-    return 0;
-}
-  
+#include <fcntl.h> 
+          
+ 
 int main(int argc, char **argv){
     char* portal_data = (char*)malloc(u_len);
     unsigned long len = u_len;
@@ -61,14 +60,12 @@ int main(int argc, char **argv){
     if( rc ){
       fprintf(stderr, "Can't open database: %s\n", sqlite3_errmsg(db));
       sqlite3_close(db);
+      getchar();
       return(1);
     }
-
     sqlite3_stmt *preparedStatement;
     sqlite3_prepare_v2(db, "UPDATE blobs SET value=? WHERE key=?", (int)strlen("UPDATE blobs SET value=? WHERE key=?"), &preparedStatement, 0);
     sqlite3_bind_blob(preparedStatement, 1, portal_data, len, 0);
-    sqlite3_bind_text(preparedStatement, 2, "market-stand0.cub", (int)strlen("market-stand0.cub"), NULL);
-    sqlite3_step(preparedStatement);
     sqlite3_bind_text(preparedStatement, 2, "market-stand1.cub", (int)strlen("market-stand0.cub"), NULL);
     sqlite3_step(preparedStatement);
     sqlite3_bind_text(preparedStatement, 2, "market-stand2.cub", (int)strlen("market-stand0.cub"), NULL);
@@ -76,6 +73,11 @@ int main(int argc, char **argv){
     sqlite3_bind_text(preparedStatement, 2, "market-stand3.cub", (int)strlen("market-stand0.cub"), NULL);
     sqlite3_step(preparedStatement);
 
+    sqlite3_finalize(preparedStatement);
+
     sqlite3_close(db);
+
+    printf("Replaced models!\nPress Enter to close");
+    getchar();
     return 0;
 }
