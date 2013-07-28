@@ -84,7 +84,7 @@ int u_len = 25212;
 int main(int argc, char **argv){
     sqlite3 *db;
     int rc;
-          char* portal_data;
+	char* portal_data;
 	unsigned long len;
 	sqlite3_stmt *preparedStatement;
 	int error;
@@ -105,13 +105,20 @@ int main(int argc, char **argv){
     
     sqlite3_prepare_v2(db, "UPDATE blobs SET value=? WHERE key=?", (int)strlen("UPDATE blobs SET value=? WHERE key=?"), &preparedStatement, 0);
     sqlite3_bind_blob(preparedStatement, 1, portal_data, len, 0);
-    sqlite3_bind_text(preparedStatement, 2, "market-stand1.cub", (int)strlen("market-stand0.cub"), NULL);
+    sqlite3_bind_text(preparedStatement, 2, "market-stand1.cub", (int)strlen("market-stand1.cub"), NULL);
     sqlite3_step(preparedStatement);
-    sqlite3_bind_text(preparedStatement, 2, "market-stand2.cub", (int)strlen("market-stand0.cub"), NULL);
-    sqlite3_step(preparedStatement);
-    sqlite3_bind_text(preparedStatement, 2, "market-stand3.cub", (int)strlen("market-stand0.cub"), NULL);
-    sqlite3_step(preparedStatement);
+	sqlite3_finalize(preparedStatement);
 	
+    sqlite3_prepare_v2(db, "UPDATE blobs SET value=? WHERE key=?", (int)strlen("UPDATE blobs SET value=? WHERE key=?"), &preparedStatement, 0);
+    sqlite3_bind_blob(preparedStatement, 1, portal_data, len, 0);
+    sqlite3_bind_text(preparedStatement, 2, "market-stand2.cub", (int)strlen("market-stand2.cub"), NULL);
+    sqlite3_step(preparedStatement);
+	sqlite3_finalize(preparedStatement);
+	
+	sqlite3_prepare_v2(db, "UPDATE blobs SET value=? WHERE key=?", (int)strlen("UPDATE blobs SET value=? WHERE key=?"), &preparedStatement, 0);
+    sqlite3_bind_blob(preparedStatement, 1, portal_data, len, 0);
+    sqlite3_bind_text(preparedStatement, 2, "market-stand3.cub", (int)strlen("market-stand3.cub"), NULL);
+    sqlite3_step(preparedStatement);
 	sqlite3_finalize(preparedStatement);
 	
 	printf("Reskinned!\nPress enter to close");
