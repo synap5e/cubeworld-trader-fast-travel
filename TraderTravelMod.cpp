@@ -128,10 +128,18 @@ DWORD push_nothing_special = FindPattern(reinterpret_cast<DWORD>(GetModuleHandle
 DWORD push_nothing_special_JMP_back = push_nothing_special + 5 + 0x0A;
 
 DWORD load_world = FindPattern(reinterpret_cast<DWORD>(GetModuleHandle(NULL)), GetModuleSize("Cube.exe"),
-	reinterpret_cast<PBYTE>("\x8B\x85\x64\xFF\xFF\xFF\x8B\x8D\x58\xFF\xFF\xFF"),
-	"xxxxxxxxxxxx");
+	reinterpret_cast<PBYTE>("\x64\xA1\x00\x00\x00\x00\x50\x81\xEC\xF0\x00\x00\x00"),
+	"xxxxxxxxxxxxx");
 
-DWORD load_world_JMP_back = load_world + 0x68 + 5;
+DWORD load_world_JMP_back = load_world + 5;
+
+DWORD key_press = FindPattern(reinterpret_cast<DWORD>(GetModuleHandle(NULL)), GetModuleSize("Cube.exe"),
+	reinterpret_cast<PBYTE>("\x83\xC0\xF7\x83\xF8\x67"),
+	"xxxxxx");
+
+DWORD key_press_jmp_back = key_press + 5;
+
+
 
 DWORD dialogue_bubble_JMP_back_dialogue;
 DWORD dialogue_bubble_JMP_back_no_dialogue;
@@ -154,9 +162,8 @@ PVOID* p_item_base = NULL;
 HINSTANCE hinst;
 
 struct location {
-	bool city_district;
-	bool trade_district;
-	bool merchant;
+	byte city_district;
+	byte trade_district;
 	QWORD x;
 	QWORD z;
 	QWORD y;
@@ -405,20 +412,6 @@ bool on_ground(){
 	return false;
 }
 
-extern "C" __declspec(dllexport) void keypress(WPARAM wParam, LPARAM lParam) {
-	
-	if (lParam & 1 << 31){
-		// Key released
-	}
-	else if ((lParam & 1 << 30) == 0){
-		// Key pressed
-		if (wParam == 'J'){
-			printf("Scheduling a teleport\n");
-			do_town_portal = true;
-		}
-	}
-}
-
 unsigned int draw_location_cycle = 0;
 
 unsigned int last_no_city_cycle = 0;
@@ -575,7 +568,7 @@ void on_draw_location(){
 	__asm
 	{
 
-			mov eax, [oldeax]
+		mov eax, [oldeax]
 			mov ecx, [oldecx]
 			mov edx, [oldedx]
 			mov ebx, [oldebx]
@@ -596,7 +589,7 @@ void on_draw_location(){
 __declspec(naked) void draw_location_asm(){
 	__asm
 	{
-		mov[oldeax], eax
+			mov[oldeax], eax
 			mov[oldecx], ecx
 			mov[oldedx], edx
 			mov[oldebx], ebx
@@ -624,7 +617,7 @@ void on_push_nothing_special(){
 	if (p_player_base && it != cities.end() && last_inspected_trader && current_city){
 
 		DWORD level = (DWORD) *(p_player_base + (0x190 / 4));
-		DWORD* money = (DWORD*)(p_player_base + (0x1304 / 4));
+		DWORD* money = (DWORD*) (p_player_base + (0x1304 / 4));
 		int cost = portal_base_cost + portal_level_cost * level;
 
 		if (*money >= cost){
@@ -702,7 +695,7 @@ __declspec(naked) void push_nothing_special_asm()
 	__asm
 	{
 
-		mov[oldeax], eax
+			mov[oldeax], eax
 			mov[oldecx], ecx
 			mov[oldedx], edx
 			mov[oldebx], ebx
@@ -744,12 +737,11 @@ void on_examine_prompt(){
 			Teleporting to stalls is the optimal way to travel
 			*/
 			if (p_player_base && current_city && on_ground()){
-				location* loc = get_location();
-				if (!loc->merchant){
+				if (cities[wstring(current_city)].trade_district != 2){
+					location* loc = get_location();
 					loc->city_district = true;
-					loc->trade_district = true;
-					loc->merchant = true;
-					wprintf(L"'%s' to point to a merchant\n", current_city);
+					loc->trade_district = 2;
+					wprintf(L"Updating '%s' to point to a merchant\n", current_city);
 					cities[wstring(current_city)] = *loc;
 					serialize();
 				}
@@ -788,7 +780,7 @@ void on_examine_prompt(){
 				}
 
 
-				wsprintf(prompt, L"[R] Travel to %s\n{ %dG %dS %dC }", travel_target.c_str(), cost / 10000, (cost % 10000)/100, cost % 100);
+				wsprintf(prompt, L"[R] Travel to %s\n{ %dG %dS %dC }", travel_target.c_str(), cost / 10000, (cost % 10000) / 100, cost % 100);
 				DWORD dwOldProtect, dwBkup;
 				VirtualProtect((BYTE*) (push_examine), 5, PAGE_EXECUTE_READWRITE, &dwOldProtect);
 				*((DWORD *) ((BYTE*) (push_examine) + 0x1)) = (intptr_t) (&prompt);
@@ -822,7 +814,7 @@ void on_examine_prompt(){
 
 	__asm
 	{
-			mov eax, [oldeax]
+		mov eax, [oldeax]
 			mov ecx, [oldecx]
 			mov edx, [oldedx]
 			mov ebx, [oldebx]
@@ -857,13 +849,6 @@ __declspec(naked) void examine_prompt_asm(){
 	}
 }
 
-LRESULT CALLBACK wireKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
-	if (HC_ACTION == nCode){
-		keypress(wParam, lParam);
-	}
-	return CallNextHookEx(hhk, nCode, wParam, lParam);
-}
-
 PVOID* old_p_player_base;
 bool in = false;
 void on_draw_player(){
@@ -874,83 +859,6 @@ void on_draw_player(){
 		old_p_player_base = p_player_base;
 		fflush(stdout);
 	}
-
-	if (do_town_portal){
-		printf("Town portal spell hit\n");
-
-		DWORD level = (DWORD) *(p_player_base + (0x190 / 4));
-		DWORD* money = (DWORD*) (p_player_base + (0x1304 / 4));
-		int cost = town_portal_base_cost + town_portal_level_cost * level;
-
-		if (last_city){
-			if (*money >= cost){
-				*money = *money - cost;
-				wprintf(L"Teleporting to city '%s'\n", last_city);
-
-				map<wstring, location>::iterator it = cities.find(wstring(last_city));
-				if (it == cities.end()){
-					printf("city not found in map\n");
-					return;
-				}
-
-				printf("Current location: ");
-				location* dloc = get_location();
-				debug_location(*dloc);
-				delete dloc;
-
-				fflush(stdout);
-				location loc = it->second;
-				sanity_check(&loc, L"Teleport", last_city);
-
-				if (!current_city){
-					current_city = new wchar_t[32];
-				}
-				wcsncpy(current_city, last_city, 32);
-
-				printf("Teleporting to: ");
-				debug_location(loc);
-				fflush(stdout);
-
-				*((QWORD*) p_player_base + 0x2) = loc.x;
-				*((QWORD*) p_player_base + 0x3) = loc.z;
-				*((QWORD*) p_player_base + 0x4) = loc.y;
-
-				printf("Teleport done\n");
-
-				printf("Current location: ");
-				dloc = get_location();
-				debug_location(*dloc);
-				delete dloc;
-
-
-				fflush(stdout);
-				serialize();
-			}
-			else {
-				printf("Can't afford to use town portal with only %d. Need %d\n", *money, cost);
-			}
-		}
-		else {
-			printf("No last city\n");
-		}
-		fflush(stdout);
-		do_town_portal = false;
-	}
-
-	if (!in)
-	{
-		in = true;
-		printf("Hooking keyboard... ");
-		hhk = SetWindowsHookEx(WH_KEYBOARD, wireKeyboardProc, NULL, GetCurrentThreadId());
-		if (hhk){
-			printf("done\n");
-		}
-		else {
-			printf("fail\n");
-		}
-		fflush(stdout);
-	}
-
 	__asm
 	{
 
@@ -973,7 +881,7 @@ __declspec(naked) void on_draw_player_asm(){
 	__asm
 	{
 
-		mov[oldeax], eax
+			mov[oldeax], eax
 			mov[oldecx], ecx
 			mov[oldedx], edx
 			mov[oldebx], ebx
@@ -1037,7 +945,7 @@ void on_load_world(){
 
 	__asm
 	{
-		mov eax, [oldeax]
+			mov eax, [oldeax]
 			mov ecx, [oldecx]
 			mov edx, [oldedx]
 			mov ebx, [oldebx]
@@ -1046,8 +954,7 @@ void on_load_world(){
 			mov esi, [oldesi]
 			mov edi, [oldedi]
 
-			PUSH    EAX								// world name
-			PUSH    DWORD PTR DS : [ECX + 0x800A50]	// seed
+			MOV EAX, DWORD PTR FS : [0]
 
 			jmp[load_world_JMP_back]
 	}
@@ -1056,7 +963,7 @@ void on_load_world(){
 __declspec(naked) void load_world_asm(){
 	__asm
 	{
-		mov[oldeax], eax
+			mov[oldeax], eax
 			mov[oldecx], ecx
 			mov[oldedx], edx
 			mov[oldebx], ebx
@@ -1065,11 +972,116 @@ __declspec(naked) void load_world_asm(){
 			mov[oldesi], esi
 			mov[oldedi], edi
 
-			mov eax, DWORD PTR DS : [ECX + 0x800A50]
+			mov eax, dword ptr ss : [ESP + 0x10]
 			mov[current_seed], eax
 
 			jmp on_load_world
 	}
+}
+
+DWORD last_key = 0;
+
+void on_key_press(){
+
+	if (last_key == 'J'){
+		printf("Town portal spell hit\n");
+
+		DWORD level = (DWORD) *(p_player_base + (0x190 / 4));
+		DWORD* money = (DWORD*) (p_player_base + (0x1304 / 4));
+		int cost = town_portal_base_cost + town_portal_level_cost * level;
+
+		if (last_city){
+			if (*money >= cost){
+				*money = *money - cost;
+				wprintf(L"Teleporting to city '%s'\n", last_city);
+
+				map<wstring, location>::iterator it = cities.find(wstring(last_city));
+				if (it == cities.end()){
+					printf("city not found in map\n");
+					return;
+				}
+
+				printf("Current location: ");
+				location* dloc = get_location();
+				debug_location(*dloc);
+				delete dloc;
+
+				fflush(stdout);
+				location loc = it->second;
+				sanity_check(&loc, L"Teleport", last_city);
+
+				if (!current_city){
+					current_city = new wchar_t[32];
+				}
+				wcsncpy(current_city, last_city, 32);
+
+				printf("Teleporting to: ");
+				debug_location(loc);
+				fflush(stdout);
+
+				*((QWORD*) p_player_base + 0x2) = loc.x;
+				*((QWORD*) p_player_base + 0x3) = loc.z;
+				*((QWORD*) p_player_base + 0x4) = loc.y;
+
+				printf("Teleport done\n");
+
+				printf("Current location: ");
+				dloc = get_location();
+				debug_location(*dloc);
+				delete dloc;
+
+
+				fflush(stdout);
+				serialize();
+			}
+			else {
+				printf("Can't afford to use town portal with only %d. Need %d\n", *money, cost);
+			}
+		}
+		else {
+			printf("No last city\n");
+		}
+		fflush(stdout);
+	}
+
+
+	__asm{
+
+		mov eax, [oldeax]
+		mov ecx, [oldecx]
+		mov edx, [oldedx]
+		mov ebx, [oldebx]
+		mov esp, [oldesp]
+		mov ebp, [oldebp]
+		mov esi, [oldesi]
+		mov edi, [oldedi]
+
+		ADD EAX, -9
+		CMP EAX, 67
+
+		jmp [key_press_jmp_back];
+	}
+}
+
+__declspec(naked) void key_press_asm(){
+	__asm
+	{
+
+		mov[oldeax], eax
+		mov[oldecx], ecx
+		mov[oldedx], edx
+		mov[oldebx], ebx
+		mov[oldesp], esp
+		mov[oldebp], ebp
+		mov[oldesi], esi
+		mov[oldedi], edi
+
+		mov [last_key], esi
+
+		jmp on_key_press
+
+	}
+
 }
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved)
@@ -1158,12 +1170,19 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 		}
 
 		if (load_world){
-			load_world += 0x68;
 			printf("Found load word %x\n", load_world);
-			MakeJMP((BYTE*) (load_world), (DWORD) load_world_asm, 0x7);
+			MakeJMP((BYTE*) (load_world), (DWORD) load_world_asm, 0x6);
 		}
 		else {
 			fail(L"load_world");
+		}
+
+		if (key_press){
+			printf("Found keypress default %x\n", key_press);
+			MakeJMP((BYTE*) key_press, (DWORD) key_press_asm, 6);
+		}
+		else {
+			fail(L"keypress default");
 		}
 
 
