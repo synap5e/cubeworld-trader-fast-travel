@@ -11,6 +11,33 @@
 
 using namespace std;
 
+wstring ExePath() {
+	wchar_t buffer[MAX_PATH];
+	GetModuleFileName(NULL, buffer, MAX_PATH);
+	string::size_type pos = wstring(buffer).find_last_of(L"\\/");
+	return wstring(buffer).substr(0, pos).append(L"\\");
+}
+
+void move_old_saves(){
+	CreateDirectory((ExePath().append(L"fast-travel/").c_str()), NULL);
+	struct _wfinddata_t dirFile;
+	long hFile;
+	if ((hFile = _wfindfirst(ExePath().append(L"*.sav").c_str(), &dirFile)) != -1)
+	{
+		wprintf(L"Moving saves from the main directory: %s\n", ExePath());
+		do{
+			wstring file = ExePath().append(dirFile.name);
+			wstring dest = ExePath().append(L"fast-travel\\").append(dirFile.name);
+			wprintf(L"Moving %s -> %s\n", file.c_str(), dest.c_str());
+			MoveFile(file.c_str(), dest.c_str());
+			
+		} while (_wfindnext(hFile, &dirFile) == 0);
+		_findclose(hFile);
+	}
+
+}
+
+
 void CreateDebugConsole()
 {
 	HANDLE lStdHandle = 0;
@@ -241,7 +268,7 @@ void sanity_check(const location* loc, const wchar_t* stage, const wchar_t* city
 
 	if (x_chunk > 255 || x_chunk < 1 || z_chunk > 255 || z_chunk < 1 || y_chunk > 2){
 		wchar_t string[512];
-		wsprintf(string, L"Chunk location sanity check failed.\nMod is refusing to start for this world, world-%d.sav needs to contain valid data or be deleted.\n\nPlease contact the mod developer.\n\nInformation:\nStage: %s\nCity: %s\nSeed: %d\n", current_seed, stage, city, current_seed);
+		wsprintf(string, L"Chunk location sanity check failed.\nMod is refusing to start for this world, \\fast-travel\\world-%d.sav needs to contain valid data or be deleted.\n\nPlease contact the mod developer.\n\nInformation:\nStage: %s\nCity: %s\nSeed: %d\n", current_seed, stage, city, current_seed);
 		printf("Location:\n\tX: %d, %d\n\tZ: %d, %d\n\tY: %d, %d\n", x_chunk, x, z_chunk, z, y_chunk, y);
 		wprintf(string);
 		fflush(stdout);
@@ -272,8 +299,8 @@ location* get_location(){
 }
 
 void serialize(){
-	wchar_t filename[32];
-	wsprintf(filename, L"world-%d.sav", current_seed);
+	wchar_t filename[256];
+	wsprintf(filename, L"%sfast-travel\\world-%d.sav", ExePath().c_str(), current_seed);
 
 	wprintf(L"Serializing to %s\n", filename);
 	fflush(stdout);
@@ -335,8 +362,8 @@ void serialize(){
 }
 
 void deserialize(){
-	wchar_t filename[32];
-	wsprintf(filename, L"world-%d.sav", current_seed);
+	wchar_t filename[256];
+	wsprintf(filename, L"%sfast-travel\\world-%d.sav", ExePath().c_str(), current_seed);
 
 	wprintf(L"Deserializing from %s\n", filename);
 	fflush(stdout);
@@ -708,7 +735,7 @@ __declspec(naked) void push_nothing_special_asm()
 	}
 }
 
-QWORD last_item_hash;
+QWORD last_item_hash = -1;
 
 void on_examine_prompt(){
 
@@ -716,14 +743,14 @@ void on_examine_prompt(){
 	QWORD item_z = *((QWORD*) p_item_base + 0x2);
 	QWORD item_y = *((QWORD*) p_item_base + 0x3);
 
-	QWORD item_hash = item_x ^ item_z ^ item_y;
+	QWORD item_hash = item_x*31 + item_z*31 + item_y*31 + (current_city==NULL);
 	if (item_hash != last_item_hash)
 	{
 
 		last_item_hash = item_hash;
 
 		byte id = *((byte*) p_item_base);
-		//	printf("%x\n", id);
+		printf("%x\n", id);
 
 		if ((id == 0x15 || id == 0x16 || id == 0x17) && current_city)
 		{
@@ -1092,6 +1119,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 		hinst = hModule;
 		//CreateDebugConsole();
 		freopen("fast travel.log", "a", stdout);
+
+		move_old_saves();
 
 		portal_base_cost = GetPrivateProfileInt(L"portals", L"base_cost", 0, L".\\fast-travel.ini");
 		portal_level_cost = GetPrivateProfileInt(L"portals", L"cost_per_level", 0, L".\\fast-travel.ini");
