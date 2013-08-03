@@ -1083,8 +1083,8 @@ void on_key_press(){
 		mov esi, [oldesi]
 		mov edi, [oldedi]
 
-		ADD EAX, -9
-		CMP EAX, 67
+		ADD EAX, -0x9
+		CMP EAX, 0x67
 
 		jmp [key_press_jmp_back];
 	}
